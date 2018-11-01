@@ -55,7 +55,6 @@ TIM_HandleTypeDef htim3;
 /* Private variables ---------------------------------------------------------*/
 GPIO_PinState state;
 uint32_t counter = 0;
-int i = 0;
 
 uint32_t setValue = 1000;
 volatile uint32_t rawValue;
@@ -127,19 +126,12 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim3);
   HAL_ADC_Start_IT(&hadc1);
 
-  printf("bababa\n");
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  counter++;
-
-
-
-	  i = i+1;
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
