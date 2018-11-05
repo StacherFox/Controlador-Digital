@@ -4,7 +4,7 @@ kmax = 20;
 
 k = 0:kmax;
 
-r = 0:Ts:kmax*Ts;
+r = ones(1,length(k));
 e = zeros(1,length(k));
 c = zeros(1,length(k));
 y = zeros(1,length(k));
