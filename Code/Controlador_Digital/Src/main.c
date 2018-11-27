@@ -40,6 +40,7 @@
 #include "main.h"
 #include "stm32f1xx_hal.h"
 #include <arm_math.h>
+#include "dwt.h"
 
 /* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
@@ -56,10 +57,10 @@ TIM_HandleTypeDef htim3;
 GPIO_PinState state;
 uint32_t counter = 0;
 
-uint32_t setValue = 1000;
+int32_t setValue = 1000;
 volatile uint32_t rawValue;
-volatile int32_t x[3];
-volatile int32_t y[3];
+//volatile int32_t x[3];
+//volatile int32_t y[3];
 
 /* USER CODE END PV */
 
@@ -125,6 +126,8 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_Base_Start_IT(&htim3);
   HAL_ADC_Start_IT(&hadc1);
+
+  DWT_Enable();
 
   /* USER CODE END 2 */
 
@@ -248,7 +251,10 @@ static void MX_ADC1_Init(void)
 
 }
 
+/* Fs = Fcpu/((Prescaler+1)*(Period+1)) */
+
 /* TIM1 init function */
+/* Tempo de Amostragem*/
 static void MX_TIM1_Init(void)
 {
 
@@ -256,9 +262,9 @@ static void MX_TIM1_Init(void)
   TIM_MasterConfigTypeDef sMasterConfig;
 
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 15;
+  htim1.Init.Prescaler = 7;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 24323;
+  htim1.Init.Period = 1799;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -283,6 +289,7 @@ static void MX_TIM1_Init(void)
 }
 
 /* TIM2 init function */
+/* PWM Output*/
 static void MX_TIM2_Init(void)
 {
 
@@ -321,6 +328,7 @@ static void MX_TIM2_Init(void)
 }
 
 /* TIM3 init function */
+/* Step Alternator */
 static void MX_TIM3_Init(void)
 {
 
@@ -328,7 +336,7 @@ static void MX_TIM3_Init(void)
   TIM_MasterConfigTypeDef sMasterConfig;
 
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 255;
+  htim3.Init.Prescaler = 257;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = 48124;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -393,10 +401,11 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-	HAL_GPIO_WritePin(GPIOA,GPIO_PIN_12,GPIO_PIN_SET);
-	if(htim->Instance == TIM1)
+	if(htim->Instance == TIM1){
+		HAL_GPIO_WritePin(GPIOA,GPIO_PIN_12,GPIO_PIN_SET);
+		//HAL_GPIO_TogglePin(GPIOA,GPIO_PIN_12);
 		HAL_ADC_Start_IT(&hadc1);
-
+	}
 	if(htim->Instance == TIM3){
 		if(setValue == 1363)
 			setValue = 2045;
@@ -406,7 +415,62 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	//HAL_GPIO_WritePin(GPIOA,GPIO_PIN_12,GPIO_PIN_SET);
 }
 
+float32_t A[3][3] = {{-416.67, 416.67, 0}, {-355.39, 333.77, 21.626}, {0, 0, -6666.7}};
+
+float32_t B3 = 6666.7;
+
+float32_t K[4] = {-0.99525, 2.106, -0.86308, 106.05};
+
+float32_t L[3] = {13165, 115830, -2.5599};
+
+float32_t c, e, enew, i, inew, k, x;
+float32_t n1, n1new, n2, n2new, n3, n3new;
+float32_t m1, m1new, m2, m2new, m3, m3new;
+
+float32_t Ts = 0.0002;
+
+int32_t xx;
+
+
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
+
+	rawValue = HAL_ADC_GetValue(&hadc1);
+	c = (4499*rawValue)/4095;
+
+
+	enew = ((float32_t)setValue - c);
+	inew = (Ts*e + i);
+
+	n1new = (Ts*m1 + n1);
+	n2new = (Ts*m2 + n2);
+	n3new = (Ts*m3 + n3);
+
+	k = (K[0]*n1new + K[1]*n2new + K[2]*n3new);
+	x = (inew*K[3] - k);
+
+	xx = x;
+
+	if(x > 4499)
+		x = 4499;
+	else if (x < 0)
+		x = 0;
+
+	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint32_t)x);
+
+	m1 = ((c-n1new)*L[0] 	+ (n1new*A[0][0]) + (n2new*A[0][1]) + (n3new*A[0][2]));
+	m2 = ((c-n1new)*L[1]	+ (n1new*A[1][0]) + (n2new*A[1][1]) + (n3new*A[1][2]));
+	m3 = ((c-n1new)*L[2] 	+ (n1new*A[2][0]) + (n2new*A[2][1]) + (n3new*A[2][2])) + x*B3;
+
+	e = enew;
+	i = inew;
+	n1 = n1new;
+	n2 = n2new;
+	n3 = n3new;
+
+	HAL_GPIO_WritePin(GPIOA,GPIO_PIN_12,GPIO_PIN_RESET);
+
+
+	/*	Lugar das raízes
 	rawValue = HAL_ADC_GetValue(&hadc1);
 	x[0] = (int32_t)(setValue - ((4499*rawValue)/4095));
 	y[0] = (2951*x[0] - 4241*x[1] + 1896*x[2] + 761*y[1] + 239*y[2])/1000;
@@ -422,8 +486,9 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
 	y[1] = y[0];
 	x[2] = x[1];
 	x[1] = x[0];
+	*/
 
-	HAL_GPIO_WritePin(GPIOA,GPIO_PIN_12,GPIO_PIN_RESET);
+	//HAL_GPIO_WritePin(GPIOA,GPIO_PIN_12,GPIO_PIN_RESET);
 	//HAL_GPIO_TogglePin(GPIOA,GPIO_PIN_12);
 }
 
